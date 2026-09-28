@@ -111,10 +111,11 @@ export function parseMeasures(rawText: string, measures: Measure[]): ParseResult
   }
 
   if (!best || bestScore <= 0) {
+    const refusal = /\b(?:I (?:cannot|can't|am unable to|won't|will not)|I'm (?:unable|not able) to)\s+(?:evaluate|rate|assess|judge|provide)/i.test(rawText);
     return {
-      status: "missing",
+      status: refusal ? "refused" : "missing",
       values,
-      notes: candidates.length
+      notes: refusal ? "Possible refusal detected from text; review the raw response before analysis." : candidates.length
         ? "A JSON object was found but it contained none of the expected fields."
         : "No JSON object was found in the reply.",
     };
@@ -129,10 +130,12 @@ export function parseMeasures(rawText: string, measures: Measure[]): ParseResult
 
     if (measure.type === "text") {
       if (typeof raw === "string") values[measure.id] = raw;
-      else if (raw != null) values[measure.id] = String(raw);
       else if (measure.required) {
         missingRequired += 1;
         problems.push(`${measure.id} missing`);
+      }
+      if (typeof raw === "string" && measure.allowedValues && !measure.allowedValues.includes(raw)) {
+        outOfRange += 1; problems.push(`${measure.id} not one of the allowed categories`);
       }
       continue;
     }

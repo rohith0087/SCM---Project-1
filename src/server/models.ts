@@ -9,7 +9,7 @@ function uniqueSorted(values: string[]): string[] {
 }
 
 async function fetchJson(url: string, init?: RequestInit): Promise<any> {
-  const response = await fetch(url, init);
+  const response = await fetch(url, { ...init, signal: AbortSignal.timeout(15000) });
   if (!response.ok) {
     const body = await response.text();
     throw new Error(`${response.status} ${response.statusText}: ${body.slice(0, 300)}`);
@@ -63,6 +63,12 @@ const loaders: Record<ProviderId, () => Promise<string[]>> = {
   google: loadGoogleModels,
   xai: loadXAIModels,
 };
+export async function checkProviderConnection(provider: ProviderId) {
+  const models = await loaders[provider]();
+  if (!models.length) throw new Error("No accessible models returned");
+  cache.set(provider, { at: Date.now(), models });
+  return models;
+}
 
 export async function getModels(provider: ProviderId, refresh = false): Promise<{ models: string[]; live: boolean }> {
   const cached = cache.get(provider);
@@ -78,7 +84,7 @@ export async function getModels(provider: ProviderId, refresh = false): Promise<
       return { models, live: true };
     }
   } catch (error) {
-    console.warn(`Model catalog refresh failed for ${provider}:`, error);
+    console.warn(`Model catalog refresh failed for ${provider}. Check credentials and connectivity.`);
   }
 
   return { models: FALLBACK_MODELS[provider], live: false };

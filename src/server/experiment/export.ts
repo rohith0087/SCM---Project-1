@@ -18,7 +18,7 @@ function cell(value: unknown): string {
   return `"${String(value).replaceAll('"', '""')}"`;
 }
 
-function toCsv(header: string[], rows: unknown[][]): string {
+export function toCsv(header: string[], rows: unknown[][]): string {
   return [header, ...rows].map((row) => row.map(cell).join(",")).join("\r\n");
 }
 
@@ -27,6 +27,7 @@ export function resultsCsv(spec: ExperimentSpec, records: RunRecord[]): string {
   const measureIds = spec.measures.map((measure) => measure.id);
 
   const header = [
+    "batch_id", "mode",
     "experiment_id",
     "experiment_version",
     "run_key",
@@ -63,6 +64,7 @@ export function resultsCsv(spec: ExperimentSpec, records: RunRecord[]): string {
   ];
 
   const rows = records.map((record) => [
+    record.batchId, record.mode,
     record.experimentId,
     record.experimentVersion,
     record.runKey,
@@ -128,6 +130,7 @@ export interface CompletionRow {
   invalid: number;
   missing: number;
   failed: number;
+  refused: number;
 }
 
 /** Per cell counts, so gaps are visible before anyone runs a statistic. */
@@ -145,6 +148,7 @@ export function completionRows(spec: ExperimentSpec, records: RunRecord[]): Comp
         invalid: 0,
         missing: 0,
         failed: 0,
+        refused: 0,
       });
     }
   }
@@ -156,6 +160,7 @@ export function completionRows(spec: ExperimentSpec, records: RunRecord[]): Comp
     else if (record.parseStatus === "ok") row.ok += 1;
     else if (record.parseStatus === "partial") row.partial += 1;
     else if (record.parseStatus === "invalid") row.invalid += 1;
+    else if (record.parseStatus === "refused") row.refused += 1;
     else row.missing += 1;
   }
 
@@ -163,7 +168,7 @@ export function completionRows(spec: ExperimentSpec, records: RunRecord[]): Comp
 }
 
 export function completionCsv(spec: ExperimentSpec, records: RunRecord[]): string {
-  const header = ["condition_id", "model_id", "expected", "ok", "partial", "invalid", "missing", "failed", "usable_pct"];
+  const header = ["condition_id", "model_id", "expected", "ok", "partial", "invalid", "missing", "refused", "failed", "usable_pct"];
   const rows = completionRows(spec, records).map((row) => [
     row.conditionId,
     row.modelId,
@@ -172,8 +177,9 @@ export function completionCsv(spec: ExperimentSpec, records: RunRecord[]): strin
     row.partial,
     row.invalid,
     row.missing,
+    row.refused,
     row.failed,
-    row.expected ? (((row.ok + row.partial) / row.expected) * 100).toFixed(1) : "",
+    row.expected ? ((row.ok / row.expected) * 100).toFixed(1) : "",
   ]);
   return toCsv(header, rows);
 }

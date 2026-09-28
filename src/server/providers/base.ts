@@ -11,6 +11,16 @@ export interface ProviderCallInput {
   target: ModelTarget;
   systemPrompt?: string;
   messages: ChatMessage[];
+  images?: Array<{ name: string; mime: "image/png" | "image/jpeg"; base64: string }>;
+  signal?: AbortSignal;
+}
+
+export function openAIInput(messages: ChatMessage[], images: ProviderCallInput["images"] = []) {
+  return messages.map((message, i) => ({ role: message.role,
+    content: i === messages.length - 1 && message.role === "user" && images.length
+      ? [{ type: "input_text" as const, text: message.content }, ...images.map(image => ({ type: "input_image" as const, detail: "auto" as const, image_url: `data:${image.mime};base64,${image.base64}` }))]
+      : message.content,
+  }));
 }
 
 export interface ProviderCallOutput {

@@ -58,6 +58,9 @@ function cartesian(factors: Factor[]): FactorLevel[][] {
 
 export function listUnresolvedPlaceholders(spec: ExperimentSpec): string[] {
   const provided = new Set<string>();
+  for (const rule of spec.stimulusRules ?? []) {
+    for (const key of Object.keys(rule.vars)) provided.add(key);
+  }
   for (const factor of spec.factors) {
     for (const level of factor.levels) {
       for (const key of Object.keys(level.vars ?? {})) provided.add(key);
@@ -73,23 +76,48 @@ export function buildConditions(spec: ExperimentSpec): Condition[] {
     const cellLabels: Record<string, string> = {};
     const vars: Record<string, string> = {};
     let systemPrompt = spec.systemPrompt ?? "";
+    let framed = false;
 
     combo.forEach((level, index) => {
       const factor = spec.factors[index];
       cells[factor.id] = level.id;
       cellLabels[factor.id] = level.label;
-      Object.assign(vars, level.vars ?? {});
-      if (level.systemPrompt !== undefined) systemPrompt = level.systemPrompt;
+      for (const [key, value] of Object.entries(level.vars ?? {})) {
+        if (key in vars && vars[key] !== value) throw new Error(`Conflicting factor variable: ${key}`);
+        vars[key] = value;
+      }
+      if (level.systemPrompt !== undefined) {
+        if (framed) throw new Error("More than one factor supplies a system prompt in a condition");
+        framed = true; systemPrompt = level.systemPrompt;
+      }
     });
 
+    const ruleKeys = new Set<string>();
+    for (const rule of spec.stimulusRules ?? []) {
+      if (Object.entries(rule.when).every(([key, value]) => cells[key] === value)) {
+        for (const key of Object.keys(rule.vars)) {
+          if (ruleKeys.has(key)) throw new Error(`Overlapping scenario rules for ${key}`);
+          ruleKeys.add(key);
+        }
+        Object.assign(vars, rule.vars);
+      }
+    }
     const id = spec.factors.map((factor) => `${factor.id}=${cells[factor.id]}`).join("|");
+    let userPrompt = render(spec.userPromptTemplate, vars);
+    systemPrompt = render(systemPrompt, vars);
+    if (/\{\{[^}]+\}\}/.test(userPrompt + systemPrompt)) throw new Error(`Unresolved stimulus in ${id}`);
+    const selected = (spec.attachments ?? []).filter(a => a.role === "stimulus" && Object.entries(a.when).every(([key, value]) => cells[key] === value));
+    for (const attachment of selected.filter(a => !a.mime.startsWith("image/"))) {
+      userPrompt += `\n\nATTACHMENT: ${attachment.name}\n${attachment.reviewedText}`;
+    }
 
     return {
       id,
       cells,
       cellLabels,
       systemPrompt,
-      userPrompt: render(spec.userPromptTemplate, vars),
+      userPrompt,
+      ...(selected.some(a => a.mime.startsWith("image/")) ? { imageIds: selected.filter(a => a.mime.startsWith("image/")).map(a => a.id) } : {}),
     };
   });
 }
@@ -120,6 +148,7 @@ export function planRuns(spec: ExperimentSpec): PlannedRun[] {
           replicate,
           systemPrompt: condition.systemPrompt,
           userPrompt: condition.userPrompt,
+          ...(condition.imageIds ? { imageIds: condition.imageIds } : {}),
         });
       }
     }

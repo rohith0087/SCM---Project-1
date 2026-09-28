@@ -14,6 +14,6 @@ const adapters: Record<ProviderId, ProviderAdapter> = {
   xai: callXAI,
 };
 
-export function getProviderAdapter(provider: ProviderId): ProviderAdapter {
-  return isDemoMode() ? callDemo : adapters[provider];
+export function getProviderAdapter(provider: ProviderId, demo = isDemoMode()): ProviderAdapter {
+  return demo ? callDemo : adapters[provider];
 }

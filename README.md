@@ -1,5 +1,74 @@
 # Frontier Model Lab
 
+## Study 2 researcher workspace
+
+Open `/#experiments` for the research pipeline. Its purpose is to let researchers
+supply and run their own approved Study 2 protocol. Study 1 administration,
+participant recruitment, methodological decisions, and statistical analysis are
+outside this workflow. The document preset follows the explicit Study 2 template: six numeric ratings
+plus reasoning, 48 conditions and 30 repetitions. Model lanes are editable
+examples to review, not mandated model choices. Previous seven-rating batches
+remain unchanged and are labeled as earlier configurations.
+
+1. **Study setup:** start blank, upload the professor's materials, and review the
+   extracted text against each original. Uploads default to reference-only and
+   are never automatically interpreted as instructions or sent to providers.
+2. **Prompts & conditions:** enter exact system/user prompts, factors and levels,
+   variable substitutions, combination-specific scenario mappings, and response
+   fields. Choose raw text or JSON validation with numeric bounds/text categories.
+   Validation does not add response instructions to the prompt.
+3. **Models & limits:** enter exact model IDs, repetitions, order seed, concurrency,
+   retry count, timeout, and total request-attempt cap. Review both requested and
+   effective provider parameters. Optional entered prices estimate text cost;
+   this is not a dollar spending limit and excludes retries/image charges.
+4. **Save revision, then review:** validate and inspect every rendered condition,
+   including text and image stimuli. Approve that saved revision and create a
+   demo or live batch. Creating a batch does not start requests.
+5. **Connections:** configure provider keys for the session or explicitly save
+   them in the ignored local `.env`. Check model-catalog access. A separately
+   authorized, potentially paid generation probe checks a selected model.
+6. **Saved batches:** start, pause, resume, inspect responses, and download exports.
+   Live starts require explicit confirmation and demo mode to be disabled.
+
+Uploads: DOCX, text PDF, UTF-8 TXT/MD/CSV/JSON, PNG, JPEG; 10 MB per file,
+20 attachments per study, 100 PDF pages, 200,000 extracted characters. No OCR.
+Word/PDF layout, images, comments, and reading order are not faithfully reproduced
+as text. Review and correct the extracted text. Text stimuli are appended with
+an `ATTACHMENT: filename` heading, visible in the preview; reference documents are
+excluded. Selected PNG/JPEG stimuli travel as native image content. Support and
+limits depend on the selected provider/model and require a reviewed live pilot.
+
+**Exports:** Package is a ZIP containing the frozen manifest/specification,
+conditions, results and completion CSVs, raw response/attempt logs where present,
+and original attachments with hashes. Results is one row per planned call's
+latest recorded result. Conditions contains rendered text prompts. Completion
+reports expected/valid/flagged/error counts by condition and model. Manifest is
+the JSON configuration and provenance record. `conditions.json` and the manifest
+also identify image attachments. Exports retain flagged answers; they do not
+decide research exclusions. API keys are not included.
+
+Storage is under ignored `data/projects`, `data/assets`, and `data/batches`.
+Back up `data/` while batches are paused; back up credentials separately if needed.
+Revisions and batch configurations are immutable through the UI. A newer revision
+must be loaded before another save; fork an old revision to create a new project.
+The attempt cap persists across restarts. A crash after sending a request but
+before saving its answer can cause that request to be sent again on resume and
+billed twice; the attempt ledger retains its reservation. Pause stops scheduling
+and lets in-flight calls finish. It does not cancel remote requests.
+
+This is a local, single-server workspace. Keep the default loopback binding;
+public or multi-user hosting needs authentication and access controls. Restart
+the API process after backend source changes. A 404 banner after a frontend
+update commonly means the browser is using new UI with an older API process.
+See `VALIDATION.md` for the distinction between completed and pending checks.
+
+Saved revisions can also be run from the CLI:
+
+```bash
+npm run experiment -- run --project=PROJECT_UUID --revision=REVISION_UUID --mode=demo --dry-run
+npm run experiment -- run --project=PROJECT_UUID --revision=REVISION_UUID --mode=demo
+```
+
 A local, side-by-side research workbench for comparing responses from OpenAI, Anthropic, Google Gemini, and xAI using the same user prompt.
 
 ## What it does
@@ -104,6 +173,67 @@ http://localhost:5173
 Vite proxies `/api` to the loopback-only Express server on port `8787`.
 
 ## Demo mode
+
+### Revised research experiments
+
+Open `http://localhost:5173/#experiments`, or choose **Research experiments** in
+the comparison sidebar. The research workspace implements the revised
+3 identities × 2 behaviors × 2 escalation levels × 4 system prompts design:
+48 conditions, 1,440 calls per model at 30 repetitions. All seven rating outcomes
+are shared with Study 1, including operational/service continuity risk.
+Categorical employment decisions are excluded from this version.
+
+1. Review any condition's exact system prompt and scenario.
+2. Select model lanes, exact model IDs, parameters, and repetitions (default: one
+   repetition on one model, 48 calls).
+3. Create a batch to freeze that configuration, then start it from Saved batches.
+4. Pause/resume, inspect coverage and raw responses, and export results,
+   conditions, completion counts, and the manifest.
+
+Demo batches use deterministic structured fixtures with valid ratings and are
+marked synthetic in the UI, manifest, and result rows. They do not call any AI
+provider and must not be used as research observations. Live batches require
+configured keys, `DEMO_MODE=false`, and explicit confirmation in the UI or CLI.
+Exact model IDs and provider compatibility still require a live pilot.
+
+Every batch is stored under `data/batches/<batch-id>/` with a frozen manifest and
+append-only `runs.ndjson`. A changed prompt, model, mode, or repetition count
+requires a new batch. Legacy `data/<experiment-id>/` results remain untouched
+and are not resumed automatically. A process lock prevents simultaneous CLI and
+browser execution of the same batch. After a process restart, resume the saved
+batch; completed calls are retained. Hard termination can lose in-flight calls.
+If a record is corrupt, resumption stops for review rather than silently skipping it.
+
+Only complete, integer, in-range ratings count as valid. Possible refusals are
+flagged using text heuristics and need manual review. Invalid and refused
+responses remain in exports; they are never automatically replaced. Temporary
+API failures use backoff; an explicit **Retry API errors** action can retry final
+API failures. Exports use the latest attempt per planned call while the raw
+append-only log retains earlier records. A finished batch may contain errors.
+
+Pricing inputs are user-entered USD per million tokens. The displayed estimate
+uses approximate input counts and configured output limits, excluding retries
+and provider-specific charges. It is not a spending cap or a quote.
+
+Human-study downloads provide 12 matched scenarios, seven rating definitions,
+checks, recruitment criteria, and import column names. They are survey-building
+materials, **not a Qualtrics QSF import or a deployed survey**. The independent
+name pretest, identity-check response options, exclusion rules, human pilot,
+preregistration, recruitment, and statistical analysis remain separate work.
+
+CLI examples (a new `run` creates a new batch):
+
+```bash
+npm run experiment -- plan study2-driver-bias --replicates=1 --models=openai
+npm run experiment -- run study2-driver-bias --replicates=1 --models=openai --mode=demo
+npm run experiment -- resume <batch-id>
+npm run experiment -- status <batch-id>
+npm run experiment -- export <batch-id>
+npm run experiment -- materials --out=study1-materials.json
+```
+
+`plan`, `preview`, `status`, and `run --dry-run` do not write batch manifests.
+Live execution requires `--confirm-live`. Resume always uses the stored settings.
 
 To test the entire workflow without making paid API requests:
 

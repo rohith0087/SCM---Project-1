@@ -6,6 +6,8 @@ import { createComparisonGraph } from "./graph.js";
 import { getModels } from "./models.js";
 import { providerStatuses } from "./catalog.js";
 import type { CompareRequest, ProviderId, StreamEvent } from "../shared/types.js";
+import { experimentRouter, stopExperiments } from "./experiment/routes.js";
+import { connectionRouter } from "./connections.js";
 
 try {
   process.loadEnvFile?.(".env");
@@ -41,7 +43,22 @@ const RequestSchema = z.object({
 });
 
 const app = express();
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "8mb" }));
+// Mutating local research endpoints are same-origin only.
+app.use((req, res, next) => {
+  const origin = req.get("origin");
+  if (origin && !["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+    try {
+      const url = new URL(origin);
+      if (!["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) || !["5173", String(process.env.PORT || 8787)].includes(url.port)) {
+        res.status(403).json({ error: "Origin is not allowed" }); return;
+      }
+    } catch { res.status(403).json({ error: "Invalid origin" }); return; }
+  }
+  next();
+});
+app.use("/api", experimentRouter);
+app.use("/api", connectionRouter);
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, timestamp: new Date().toISOString() });
@@ -126,6 +143,13 @@ app.get("/{*splat}", (req, res, next) => {
 
 const port = Number(process.env.PORT || 8787);
 const host = process.env.HOST || "127.0.0.1";
-app.listen(port, host, () => {
+const server = app.listen(port, host, () => {
   console.log(`Frontier Model Lab server listening on http://${host}:${port}`);
+});
+let stopping = false;
+for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => {
+  if (stopping) return;
+  stopping = true;
+  console.log("Saving in-flight experiment responses before shutdown...");
+  void stopExperiments().finally(() => server.close(() => process.exit(0)));
 });

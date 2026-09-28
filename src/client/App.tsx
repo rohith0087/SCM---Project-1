@@ -272,6 +272,7 @@ export default function App() {
           <Plus size={16} /> New comparison
         </button>
 
+        <a className="ghost-button experiment-entry" href="#experiments"><FlaskConical size={16} /> Research experiments</a>
         <div className="sidebar-label">Saved comparisons</div>
         <nav className="session-list">
           {sessions.map((entry) => (
@@ -361,6 +362,11 @@ export default function App() {
         </header>
 
         <div className="scroll-area">
+          <div className="notice">
+            <strong>Optional model-comparison chat.</strong> Ask selected models the same question and compare their replies.
+            Standing instructions apply to every message, and each model retains its own conversation history.
+            For Study 2’s independent condition runs, use the <a href="#experiments">Study 2 workspace</a>.
+          </div>
           {demoMode && (
             <div className="notice">
               <strong>Demo mode is on.</strong> Answers below are samples, not real AI responses. Add vendor keys to the

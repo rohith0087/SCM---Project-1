@@ -1,9 +1,9 @@
 import OpenAI from "openai";
 import type { ProviderAdapter } from "./base.js";
-import { clampSampling, requireKey } from "./base.js";
+import { clampSampling, requireKey, openAIInput } from "./base.js";
 
-export const callOpenAI: ProviderAdapter = async ({ target, systemPrompt, messages }) => {
-  const client = new OpenAI({ apiKey: requireKey("openai", process.env.OPENAI_API_KEY) });
+export const callOpenAI: ProviderAdapter = async ({ target, systemPrompt, messages, images = [], signal }) => {
+  const client = new OpenAI({ maxRetries: 0, apiKey: requireKey("openai", process.env.OPENAI_API_KEY) });
   const p = clampSampling(target.parameters);
   const samplingRestricted = target.model.startsWith("gpt-6-astra");
 
@@ -17,15 +17,12 @@ export const callOpenAI: ProviderAdapter = async ({ target, systemPrompt, messag
   const response = await client.responses.create({
     model: target.model,
     instructions: systemPrompt || undefined,
-    input: messages.map((message) => ({
-      role: message.role,
-      content: message.content,
-    })),
+    input: openAIInput(messages, images),
     temperature: samplingRestricted ? undefined : p.temperature,
     top_p: samplingRestricted ? undefined : p.topP,
     max_output_tokens: p.maxTokens,
     reasoning: reasoningEffort ? ({ effort: reasoningEffort } as any) : undefined,
-  });
+  }, { signal });
 
   return {
     text: response.output_text ?? "",

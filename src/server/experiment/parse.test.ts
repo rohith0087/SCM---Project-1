@@ -49,9 +49,9 @@ test("rejects an echoed template instead of reading a number from it", () => {
   assert.equal(result.values.performance_rating, null);
 });
 
-test("marks a refusal as missing and keeps nothing", () => {
+test("flags a possible refusal for review instead of silently treating it as missing", () => {
   const result = parseMeasures("I'm not able to evaluate an employee based on this information.", MEASURES);
-  assert.equal(result.status, "missing");
+  assert.equal(result.status, "refused");
   assert.equal(result.values.performance_rating, null);
 });
 

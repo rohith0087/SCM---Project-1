@@ -6,10 +6,11 @@ import type {
 } from "../../shared/experiment.js";
 import type { ModelTarget, ProviderId } from "../../shared/types.js";
 import { getProviderAdapter } from "../providers/index.js";
-import { effectiveParameters } from "../providers/base.js";
+import { effectiveParameters, type ProviderCallInput, type ProviderCallOutput } from "../providers/base.js";
 import { hash } from "./design.js";
 import { parseMeasures } from "./parse.js";
 import type { RunStore } from "./store.js";
+import { experimentDemo } from "./demo.js";
 
 /**
  * Executes a planned batch.
@@ -78,6 +79,8 @@ export interface RunnerOptions {
   onRecord?: (record: RunRecord) => void;
   onProgress?: (progress: ExperimentProgress) => void;
   signal?: AbortSignal;
+  /** Dependency injection for offline transport verification. */
+  adapter?: (input: ProviderCallInput) => Promise<ProviderCallOutput>;
 }
 
 export async function runExperiment(options: RunnerOptions): Promise<ExperimentProgress> {
@@ -86,6 +89,7 @@ export async function runExperiment(options: RunnerOptions): Promise<ExperimentP
   const globalLimit = spec.concurrency?.global ?? 4;
   const globalGate = new Semaphore(globalLimit);
   const startedAt = new Date().toISOString();
+  let fatalError: unknown;
 
   const progress: ExperimentProgress = {
     experimentId: spec.id,
@@ -124,7 +128,8 @@ export async function runExperiment(options: RunnerOptions): Promise<ExperimentP
       parameters: run.parameters,
     };
     const parameters = effectiveParameters(target);
-    const adapter = getProviderAdapter(run.provider);
+    const adapter = options.adapter ?? getProviderAdapter(run.provider, false);
+    const images = await Promise.all((run.imageIds ?? []).map(id => store.image(id)));
 
     let attempt = 0;
     let lastError = "";
@@ -133,28 +138,37 @@ export async function runExperiment(options: RunnerOptions): Promise<ExperimentP
       attempt += 1;
       if (signal?.aborted) throw new Error("aborted");
 
-      const startedIso = new Date().toISOString();
-      const startedMs = Date.now();
+      let startedIso = new Date().toISOString();
+      let startedMs = Date.now();
+      let reserved = false;
 
       try {
         await globalGate.acquire();
         let output;
         try {
-          output = await adapter({
+          if (signal?.aborted || fatalError) throw new Error("aborted");
+          await store.reserveAttempt(run.runKey);
+          reserved = true;
+          startedMs = Date.now(); startedIso = new Date().toISOString();
+          output = store.manifest.mode === "demo" ? await experimentDemo(run, spec.measures) : await adapter({
             runId: crypto.randomUUID(),
             target: { ...target, parameters },
             systemPrompt: run.systemPrompt,
             // One message, no history. This is what keeps replicates independent.
             messages: [{ role: "user", content: run.userPrompt }],
+            images,
+            signal: AbortSignal.timeout(spec.limits?.timeoutMs ?? 120000),
           });
         } finally {
           globalGate.release();
         }
 
         const completedIso = new Date().toISOString();
-        const parsed = parseMeasures(output.text ?? "", spec.measures);
+        const parsed = spec.responseMode === "text" ? { status: output.text?.trim() ? "ok" as const : "missing" as const, values: {}, notes: undefined } : parseMeasures(output.text ?? "", spec.measures);
 
         return {
+          batchId: store.manifest.batchId,
+          mode: store.manifest.mode,
           experimentId: spec.id,
           experimentVersion: spec.version,
           runKey: run.runKey,
@@ -183,13 +197,16 @@ export async function runExperiment(options: RunnerOptions): Promise<ExperimentP
           parseNotes: parsed.notes,
         };
       } catch (error) {
-        if (signal?.aborted) throw new Error("aborted");
+        if (!reserved) throw error;
         lastError = error instanceof Error ? error.message : String(error);
+        if (lastError.startsWith("CALL_LIMIT:")) throw error;
 
-        const canRetry = attempt < retry.maxAttempts && isRetryable(lastError);
+        const canRetry = !signal?.aborted && attempt < retry.maxAttempts && isRetryable(lastError);
         if (!canRetry) {
           const completedIso = new Date().toISOString();
           return {
+            batchId: store.manifest.batchId,
+            mode: store.manifest.mode,
             experimentId: spec.id,
             experimentVersion: spec.version,
             runKey: run.runKey,
@@ -235,7 +252,7 @@ export async function runExperiment(options: RunnerOptions): Promise<ExperimentP
 
     const worker = async () => {
       for (let run = take(); run; run = take()) {
-        if (signal?.aborted) return;
+        if (signal?.aborted || fatalError) return;
         try {
           const record = await executeOne(run);
           await store.append(record);
@@ -247,10 +264,10 @@ export async function runExperiment(options: RunnerOptions): Promise<ExperimentP
           onRecord?.(record);
           emit();
         } catch (error) {
-          if (signal?.aborted) return;
-          progress.failed += 1;
-          progress.message = error instanceof Error ? error.message : String(error);
-          emit();
+          if (signal?.aborted && error instanceof Error && error.message === "aborted") return;
+          // Stop on persistence failures instead of continuing to spend with lost results.
+          fatalError = error;
+          return;
         }
       }
     };
@@ -259,6 +276,7 @@ export async function runExperiment(options: RunnerOptions): Promise<ExperimentP
   });
 
   await Promise.all(providerTasks);
+  if (fatalError) throw fatalError;
 
   progress.state = signal?.aborted ? "paused" : "done";
   emit();

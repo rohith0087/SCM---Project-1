@@ -42,6 +42,30 @@ export interface Measure {
   max?: number;
   /** When false, a missing value does not make the whole run invalid. */
   required?: boolean;
+  allowedValues?: string[];
+}
+
+export interface StudyAsset {
+  id: string;
+  name: string;
+  mime: string;
+  sha256: string;
+  bytes: number;
+  extractedText: string;
+  warnings: string[];
+}
+export interface StudyAttachment extends StudyAsset {
+  role: "reference" | "stimulus";
+  reviewedText: string;
+  reviewed: boolean;
+  /** Empty selects all conditions. Otherwise the factor selections must match. */
+  when: Record<string, string>;
+}
+export interface StudyRevision {
+  projectId: string;
+  revisionId: string;
+  createdAt: string;
+  spec: ExperimentSpec;
 }
 
 export interface RetryPolicy {
@@ -71,6 +95,13 @@ export interface ExperimentSpec {
   seed?: number;
   concurrency?: ConcurrencyPolicy;
   retry?: RetryPolicy;
+  /** Text selected by a combination of factors, e.g. behavior and escalation. */
+  stimulusRules?: Array<{ when: Record<string, string>; vars: Record<string, string> }>;
+  attachments?: StudyAttachment[];
+  responseMode?: "json" | "text";
+  projectId?: string;
+  revisionId?: string;
+  limits?: { timeoutMs: number; maxTotalCalls: number };
 }
 
 /** One cell of the design: a combination with one level per factor. */
@@ -82,6 +113,7 @@ export interface Condition {
   cellLabels: Record<string, string>;
   systemPrompt: string;
   userPrompt: string;
+  imageIds?: string[];
 }
 
 /** A single planned API call. */
@@ -99,12 +131,15 @@ export interface PlannedRun {
   order: number;
   systemPrompt: string;
   userPrompt: string;
+  imageIds?: string[];
 }
 
-export type ParseStatus = "ok" | "partial" | "invalid" | "missing" | "not_attempted";
+export type ParseStatus = "ok" | "partial" | "invalid" | "missing" | "refused" | "not_attempted";
 
 /** The stored outcome of one call. Raw text is always kept beside the parse. */
 export interface RunRecord {
+  batchId: string;
+  mode: "demo" | "live";
   experimentId: string;
   experimentVersion: string;
   runKey: string;

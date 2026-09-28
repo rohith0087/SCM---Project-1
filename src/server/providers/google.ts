@@ -2,7 +2,7 @@ import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import type { ProviderAdapter } from "./base.js";
 import { clampSampling, requireKey } from "./base.js";
 
-export const callGoogle: ProviderAdapter = async ({ target, systemPrompt, messages }) => {
+export const callGoogle: ProviderAdapter = async ({ target, systemPrompt, messages, images = [], signal }) => {
   const client = new GoogleGenAI({ apiKey: requireKey("google", process.env.GOOGLE_API_KEY) });
   const p = clampSampling(target.parameters);
   const isGemini38 = target.model.startsWith("gemini-3.8");
@@ -12,11 +12,13 @@ export const callGoogle: ProviderAdapter = async ({ target, systemPrompt, messag
 
   const response = await client.models.generateContent({
     model: target.model,
-    contents: messages.map((message) => ({
+    contents: messages.map((message, index) => ({
       role: message.role === "assistant" ? "model" : "user",
-      parts: [{ text: message.content }],
+      parts: [{ text: message.content }, ...(index === messages.length - 1 && message.role === "user" ? images.map(image => ({ inlineData: { mimeType: image.mime, data: image.base64 } })) : [])],
     })),
     config: {
+      abortSignal: signal,
+      httpOptions: { retryOptions: { attempts: 1 } },
       systemInstruction: systemPrompt || undefined,
       maxOutputTokens: p.maxTokens,
       // Gemini 3.8 deprecates sampling controls; keep them available for models that support them.

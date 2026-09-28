@@ -18,8 +18,8 @@ function supportsEffort(model: string) {
   );
 }
 
-export const callAnthropic: ProviderAdapter = async ({ target, systemPrompt, messages }) => {
-  const client = new Anthropic({ apiKey: requireKey("anthropic", process.env.ANTHROPIC_API_KEY) });
+export const callAnthropic: ProviderAdapter = async ({ target, systemPrompt, messages, images = [], signal }) => {
+  const client = new Anthropic({ maxRetries: 0, apiKey: requireKey("anthropic", process.env.ANTHROPIC_API_KEY) });
   const p = clampSampling(target.parameters);
   const restrictedSampling = samplingIsRestricted(target.model);
   const effort = target.parameters.reasoningEffort;
@@ -35,11 +35,13 @@ export const callAnthropic: ProviderAdapter = async ({ target, systemPrompt, mes
     temperature: restrictedSampling ? undefined : p.temperature,
     top_p: restrictedSampling ? undefined : p.topP,
     output_config: anthropicEffort ? { effort: anthropicEffort } : undefined,
-    messages: messages.map((message) => ({
+    messages: messages.map((message, index) => ({
       role: message.role === "assistant" ? "assistant" : "user",
-      content: message.content,
+      content: index === messages.length - 1 && message.role === "user" && images.length
+        ? [{ type: "text" as const, text: message.content }, ...images.map(image => ({ type: "image" as const, source: { type: "base64" as const, media_type: image.mime, data: image.base64 } }))]
+        : message.content,
     })),
-  });
+  }, { signal });
 
   const text = response.content
     .filter((block) => block.type === "text")
